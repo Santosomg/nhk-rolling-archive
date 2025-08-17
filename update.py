@@ -1,51 +1,43 @@
-import requests
-import xml.etree.ElementTree as ET
-from datetime import datetime
-import os
+name: Update NHK Feed
 
-API_URL = "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/corners/new_arrivals"
-MAX_EPISODES = 10
+on:
+  schedule:
+    # Runs every 2 hours
+    - cron: '0 */2 * * *'
+  workflow_dispatch:  # Allows manual trigger
 
-def fetch_episodes():
-    res = requests.get(API_URL)
-    data = res.json()
-    episodes = []
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
 
-    for item in data.get("data", [])[:MAX_EPISODES]:
-        title = item.get("title", "NHKラジオニュース")
-        pub_date = item.get("ondemand_publish_date", "")
-        audio_url = item.get("ondemand_url", "")
-        if not audio_url.endswith(".mp3"):
-            continue
+    steps:
+      # Step 1: Checkout the repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-        episodes.append({
-            "title": title,
-            "pubDate": pub_date,
-            "url": audio_url
-        })
+      # Step 2: Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    return episodes
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: pip install requests
 
-def build_rss(episodes):
-    rss = ET.Element("rss", version="2.0")
-    channel = ET.SubElement(rss, "channel")
+      # Step 4: Run the update script
+      - name: Run update.py
+        run: python update.py
 
-    ET.SubElement(channel, "title").text = "NHK Rolling Archive"
-    ET.SubElement(channel, "link").text = "https://www.nhk.or.jp/radio/"
-    ET.SubElement(channel, "description").text = "Latest NHKラジオニュース episodes"
-    ET.SubElement(channel, "language").text = "ja"
-    ET.SubElement(channel, "lastBuildDate").text = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+      # Step 5: Configure Git (needed for commit)
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
 
-    for ep in episodes:
-        item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = ep["title"]
-        ET.SubElement(item, "pubDate").text = ep["pubDate"]
-        ET.SubElement(item, "enclosure", url=ep["url"], type="audio/mpeg", length="12345678")
-        ET.SubElement(item, "guid").text = ep["url"]
-
-    tree = ET.ElementTree(rss)
-    tree.write("feed.xml", encoding="utf-8", xml_declaration=True)
-
-if __name__ == "__main__":
-    episodes = fetch_episodes()
-    build_rss(episodes)
+      # Step 6: Commit and push changes
+      - name: Commit and push feed.xml
+        run: |
+          git add feed.xml
+          git commit -m "Update NHK feed" || echo "No changes to commit"
+          git push
